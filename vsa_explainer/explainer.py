@@ -234,7 +234,7 @@ def get_peoe_vsa_bins():
     # Standard PEOE_VSA charge bins (from RDKit source)
     return [-0.30, -0.25, -0.20, -0.15, -0.10, -0.05, 0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 
-def visualize_vsa_contributions(smiles, highlight_descriptors=None):
+def visualize_vsa_contributions(smiles, highlight_descriptors=None, save_path = None):
     """
     Analyze and visualize VSA descriptor contributions for a molecule,
     including SMR_VSA, SlogP_VSA, EState_VSA, VSA_EState, and PEOE_VSA families.
@@ -325,6 +325,10 @@ def visualize_vsa_contributions(smiles, highlight_descriptors=None):
         )
         drawer.FinishDrawing()
         display(SVG(drawer.GetDrawingText()))
+        if save_path:
+            with open(save_path, "w") as f:
+                f.write(svg_text)
+            print(f"Saved SVG to {save_path}")
 
         # --- print contribution table ---
         descriptor_type = "Charge" if desc.startswith("PEOE_VSA") else "Value"
@@ -337,4 +341,4 @@ def visualize_vsa_contributions(smiles, highlight_descriptors=None):
             val   = values[i]
             cst   = contributions[i]
             pct   = 100*cst/total if total else 0
-            print(f"{i:<4d}{sym:<4s}{val:8.3f}{cst:12.3f}{pct:12.1f}%")
+            print(f"{i:<4d}{sym:<4s}{val:8.3f}{cst:12.3f}{pct:12.1f}%") 
