@@ -343,3 +343,107 @@ def visualize_vsa_contributions(smiles, highlight_descriptors=None, save_path = 
             cst   = contributions[i]
             pct   = 100*cst/total if total else 0
             print(f"{i:<4d}{sym:<4s}{val:8.3f}{cst:12.3f}{pct:12.1f}%") 
+
+def highlight_top_contributing_atoms(smiles, descriptors, number_atoms=5, mode="percentage"):
+    """
+    Identify and highlight the top N atoms contributing most to the selected descriptors.
+    
+    Args:
+        smiles (str): Molecule SMILES.
+        descriptors (list): List of descriptor names (e.g. ['SMR_VSA8', 'PEOE_VSA5']).
+        number_atoms (int): Number of top atoms to highlight.
+        mode (str): 'percentage' (percentage of descriptor contributions) or 'frequency' (count of appearances).
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        print(f"Error: Could not parse SMILES '{smiles}'")
+        return
+    if not mol.GetNumConformers():
+        AllChem.Compute2DCoords(mol)
+
+    # precompute all per-atom values/contributions
+    crippen_contribs = rdMolDescriptors._CalcCrippenContribs(mol)
+    vsa_contribs    = list(rdMolDescriptors._CalcLabuteASAContribs(mol)[0])
+    estate_indices  = EState.EStateIndices(mol)
+    peoe_charges    = get_peoe_charges(mol)
+
+    # --- helper to get bin boundaries ---
+    def safe_get_bin_bounds(desc):
+        if desc.startswith("SMR_VSA") or desc.startswith("SlogP_VSA"):
+            return get_vsa_bin_bounds(desc)
+        elif desc.startswith("EState_VSA"):
+            idx = int(desc.split("EState_VSA")[1])
+            return get_bin_bounds(idx, EState_VSA.estateBins)
+        elif desc.startswith("VSA_EState"):
+            idx = int(desc.split("VSA_EState")[1])
+            return get_bin_bounds(idx, EState_VSA.vsaBins)
+        elif desc.startswith("PEOE_VSA"):
+            idx = int(desc.split("PEOE_VSA")[1])
+            return get_bin_bounds(idx, get_peoe_vsa_bins())
+        else:
+            raise ValueError(f"Unknown descriptor: {desc}")
+
+    # accumulate per-atom importance scores
+    atom_scores = np.zeros(mol.GetNumAtoms())
+    atom_counts = np.zeros(mol.GetNumAtoms())
+
+    for desc in descriptors:
+        try:
+            lower, upper = safe_get_bin_bounds(desc)
+        except ValueError as e:
+            print(e)
+            continue
+
+        if desc.startswith("SMR_VSA"):
+            values = [c[1] for c in crippen_contribs]
+            contributions = vsa_contribs
+        elif desc.startswith("SlogP_VSA"):
+            values = [c[0] for c in crippen_contribs]
+            contributions = vsa_contribs
+        elif desc.startswith("EState_VSA"):
+            values = estate_indices
+            contributions = vsa_contribs
+        elif desc.startswith("VSA_EState"):
+            values = vsa_contribs
+            contributions = estate_indices
+        elif desc.startswith("PEOE_VSA"):
+            values = peoe_charges
+            contributions = vsa_contribs
+        else:
+            continue
+
+        for i, (val, contrib) in enumerate(zip(values, contributions)):
+            if lower <= val < upper:
+                atom_counts[i] += 1
+                atom_scores[i] += contrib
+
+    # Choose ranking mode
+    if mode == "frequency":
+        scores = atom_counts
+    elif mode == "percentage":
+        scores = atom_scores / (atom_scores.sum() + 1e-12)
+    else:
+        raise ValueError("mode must be 'frequency' or 'percentage'")
+
+    #identify top N atoms
+    top_indices = np.argsort(scores)[-number_atoms:][::-1]
+    top_indices = [int(i) for i in np.argsort(scores)[-number_atoms:][::-1]]
+    top_scores = scores[top_indices]
+
+    print(f"Top {number_atoms} contributing atoms ({mode} mode):")
+    print(f"{'Idx':<5}{'Atom':<5}{'Score':>10}")
+    print("-"*22)
+    for i, s in zip(top_indices, top_scores):
+        atom = mol.GetAtomWithIdx(int(i))
+        print(f"{i:<5}{atom.GetSymbol():<5}{s:10.4f}")
+
+    #highlight top atoms
+    colors = {i: (0.0, 0.7, 0.0) for i in top_indices}
+    drawer = rdMolDraw2D.MolDraw2DSVG(500, 500)
+    drawer.drawOptions().addAtomIndices = True
+    rdMolDraw2D.PrepareAndDrawMolecule(
+        drawer, mol, highlightAtoms=list(top_indices), highlightAtomColors=colors
+    )
+    drawer.FinishDrawing()
+    svg_text = drawer.GetDrawingText()
+    display(SVG(svg_text))
