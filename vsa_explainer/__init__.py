@@ -5,6 +5,8 @@ from .explainer import (
     get_vsa_bin_bounds,
     get_bin_bounds,
     visualize_vsa_contributions,
+    get_peoe_charges,
+    highlight_top_contributing_atoms,
 )
 
 __version__ = "0.2.0"
